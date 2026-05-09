@@ -75,6 +75,10 @@
       opacity: 0.7;
     }
 
+    button.secondary {
+      background: #5f6c7b;
+    }
+
     #status {
       min-height: 24px;
       margin-top: 16px;
@@ -95,22 +99,25 @@
 </head>
 <body>
   <main>
-    <h1>Share Rider Location</h1>
-    <p>Use this only when the rider agrees to share their current delivery location for this order.</p>
+    <h1>Live Rider Location</h1>
+    <p>Keep this page open while working. It sends your current location about every 30 seconds after you allow location access.</p>
 
     <label for="riderId">Rider ID</label>
     <input id="riderId" autocomplete="off" placeholder="RIDER-001">
 
-    <label for="orderId">Order ID</label>
+    <label for="orderId">Order ID optional</label>
     <input id="orderId" autocomplete="off" placeholder="ORDER-1234">
 
-    <button id="shareButton" onclick="shareLocation()">Share My Current Location</button>
+    <button id="shareButton" onclick="startTracking()">Start Live Tracking</button>
+    <button id="stopButton" class="secondary" onclick="stopTracking()" hidden>Stop Tracking</button>
     <div id="status" role="status"></div>
     <div id="details" class="details" hidden></div>
   </main>
 
   <script>
     const API_BASE_URL = "https://location-tracker-p7z7.onrender.com";
+    const SEND_INTERVAL_MS = 30000;
+    let trackingTimer = null;
 
     function getValue(id) {
       return document.getElementById(id).value.trim();
@@ -128,9 +135,17 @@
 
       details.hidden = false;
       details.replaceChildren();
-      details.appendChild(document.createElement("strong")).innerText = "Saved for WhatsApp lookup";
+      details.appendChild(document.createElement("strong")).innerText = "Live location saved";
       details.appendChild(document.createElement("br"));
 
+      if (location.orderId) {
+        const order = document.createElement("div");
+        order.innerText = `Order: ${location.orderId}`;
+        details.append(order);
+      }
+
+      const rider = document.createElement("div");
+      rider.innerText = `Rider: ${location.riderId}`;
       address.innerText = `Address: ${location.address || "Address lookup unavailable"}`;
       accuracy.innerText = `Accuracy: ${Math.round(location.accuracy || 0)} meters`;
       map.href = location.mapUrl;
@@ -138,16 +153,63 @@
       map.rel = "noopener";
       map.innerText = "Open location";
 
-      details.append(address, accuracy, map);
+      details.append(rider, address, accuracy, map);
     }
 
-    async function shareLocation() {
-      const button = document.getElementById("shareButton");
+    async function sendLocation(position) {
       const riderId = getValue("riderId");
       const orderId = getValue("orderId");
 
-      if (!riderId || !orderId) {
-        setStatus("Enter both Rider ID and Order ID.");
+      const data = {
+        riderId,
+        orderId,
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        time: new Date().toISOString()
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/location`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || "Unable to save location.");
+      }
+
+      setStatus(`Live tracking active. Last update: ${new Date().toLocaleTimeString()}`);
+      setDetails(result.location);
+    }
+
+    function requestAndSendLocation() {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          sendLocation(position).catch((error) => setStatus(error.message));
+        },
+        () => {
+          setStatus("Location permission denied or unavailable.");
+          stopTracking();
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 5000
+        }
+      );
+    }
+
+    function startTracking() {
+      const startButton = document.getElementById("shareButton");
+      const stopButton = document.getElementById("stopButton");
+      const riderId = getValue("riderId");
+
+      if (!riderId) {
+        setStatus("Enter Rider ID.");
         return;
       }
 
@@ -156,52 +218,26 @@
         return;
       }
 
-      button.disabled = true;
+      startButton.disabled = true;
+      stopButton.hidden = false;
       setStatus("Waiting for location permission...");
 
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const data = {
-            riderId,
-            orderId,
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            time: new Date().toISOString()
-          };
+      requestAndSendLocation();
+      trackingTimer = setInterval(requestAndSendLocation, SEND_INTERVAL_MS);
+    }
 
-          try {
-            const response = await fetch(`${API_BASE_URL}/api/location`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify(data)
-            });
+    function stopTracking() {
+      const startButton = document.getElementById("shareButton");
+      const stopButton = document.getElementById("stopButton");
 
-            const result = await response.json();
-            if (!response.ok) {
-              throw new Error(result.message || "Unable to save location.");
-            }
+      if (trackingTimer !== null) {
+        clearInterval(trackingTimer);
+        trackingTimer = null;
+      }
 
-            setStatus("Location shared successfully.");
-            setDetails(result.location);
-          } catch (error) {
-            setStatus(error.message);
-          } finally {
-            button.disabled = false;
-          }
-        },
-        () => {
-          setStatus("Location permission denied.");
-          button.disabled = false;
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0
-        }
-      );
+      startButton.disabled = false;
+      stopButton.hidden = true;
+      setStatus("Live tracking stopped.");
     }
   </script>
 </body>

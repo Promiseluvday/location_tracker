@@ -15,6 +15,8 @@ app.use(
 app.use(express.json());
 
 const latestLocations = new Map();
+const latestLocationsByRider = new Map();
+const latestLocationsByOrder = new Map();
 
 function normalizeId(value) {
   return String(value || "")
@@ -58,10 +60,10 @@ app.post("/api/location", async (req, res) => {
   const longitude = toNumber(req.body.longitude);
   const accuracy = toNumber(req.body.accuracy);
 
-  if (!riderId || !orderId) {
+  if (!riderId) {
     return res.status(400).json({
       success: false,
-      message: "riderId and orderId are required.",
+      message: "riderId is required.",
     });
   }
 
@@ -88,7 +90,7 @@ app.post("/api/location", async (req, res) => {
 
   const location = {
     riderId,
-    orderId,
+    orderId: orderId || null,
     latitude,
     longitude,
     accuracy,
@@ -97,10 +99,63 @@ app.post("/api/location", async (req, res) => {
     sharedAt: new Date().toISOString(),
   };
 
-  latestLocations.set(`${orderId}:${riderId}`, location);
+  latestLocationsByRider.set(riderId, location);
+  if (orderId) {
+    latestLocations.set(`${orderId}:${riderId}`, location);
+    latestLocationsByOrder.set(orderId, location);
+  }
 
   console.log("Consented rider location received:", location);
   res.json({ success: true, location });
+});
+
+app.get("/api/riders/locations", (req, res) => {
+  const locations = [...latestLocationsByRider.values()].map((location) => ({
+    ...location,
+    ageSeconds: Math.round((Date.now() - Date.parse(location.sharedAt)) / 1000),
+  }));
+
+  res.json({ success: true, count: locations.length, locations });
+});
+
+app.get("/api/rider/:riderId/location", (req, res) => {
+  const riderId = normalizeId(req.params.riderId);
+  const location = latestLocationsByRider.get(riderId);
+
+  if (!location) {
+    return res.status(404).json({
+      success: false,
+      message: "No location has been shared for this rider yet.",
+    });
+  }
+
+  res.json({
+    success: true,
+    location: {
+      ...location,
+      ageSeconds: Math.round((Date.now() - Date.parse(location.sharedAt)) / 1000),
+    },
+  });
+});
+
+app.get("/api/order/:orderId/location", (req, res) => {
+  const orderId = normalizeId(req.params.orderId);
+  const location = latestLocationsByOrder.get(orderId);
+
+  if (!location) {
+    return res.status(404).json({
+      success: false,
+      message: "No rider location has been shared for this order yet.",
+    });
+  }
+
+  res.json({
+    success: true,
+    location: {
+      ...location,
+      ageSeconds: Math.round((Date.now() - Date.parse(location.sharedAt)) / 1000),
+    },
+  });
 });
 
 app.get("/api/location/:orderId/:riderId", (req, res) => {

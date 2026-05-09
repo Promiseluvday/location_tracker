@@ -1,6 +1,6 @@
 # Rider Location Prototype
 
-This prototype captures a rider's current browser GPS location after the rider grants permission, stores the latest location in the backend, and exposes a lookup endpoint your WhatsApp bot can call.
+This prototype captures a rider's browser GPS location after the rider grants permission, sends live updates about every 30 seconds while the page is open, stores the latest location in the backend, and exposes lookup endpoints your WhatsApp bot can call.
 
 ## Run locally
 
@@ -31,10 +31,28 @@ Content-Type: application/json
 }
 ```
 
-Query the latest location for WhatsApp:
+Query one order/rider pair:
 
 ```http
 GET /api/location/ORDER-1234/RIDER-001
+```
+
+Query the latest location for one rider:
+
+```http
+GET /api/rider/RIDER-001/location
+```
+
+Query all latest rider locations for dispatch matching:
+
+```http
+GET /api/riders/locations
+```
+
+Query the latest rider location attached to an order:
+
+```http
+GET /api/order/ORDER-1234/location
 ```
 
 The response includes latitude, longitude, accuracy, a Google Maps URL, and an address when reverse geocoding is available.
