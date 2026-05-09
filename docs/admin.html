@@ -159,6 +159,7 @@
             `Status: ${item.status || "online"}`,
             `Lat: ${item.latitude}`,
             `Lng: ${item.longitude}`,
+            item.deviceType ? `Device: ${item.deviceType}` : "",
             item.speedKmh !== undefined && item.speedKmh !== null ? `Speed: ${item.speedKmh} km/h` : "",
             item.accuracy !== undefined ? `Accuracy: ${Math.round(item.accuracy)} m` : "",
             item.ageSeconds !== undefined ? `Age: ${item.ageSeconds}s` : "",

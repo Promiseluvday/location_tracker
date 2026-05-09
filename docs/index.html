@@ -41,22 +41,6 @@
       color: #4a5664;
     }
 
-    label {
-      display: block;
-      margin: 14px 0 6px;
-      font-weight: 700;
-      font-size: 14px;
-    }
-
-    input {
-      width: 100%;
-      box-sizing: border-box;
-      border: 1px solid #b9c3cf;
-      border-radius: 6px;
-      padding: 12px;
-      font-size: 16px;
-    }
-
     button {
       width: 100%;
       margin-top: 18px;
@@ -100,13 +84,7 @@
 <body>
   <main>
     <h1>Live Rider Location</h1>
-    <p>Keep this page open while working. It sends your current location about every 30 seconds after you allow location access.</p>
-
-    <label for="riderId">Rider ID</label>
-    <input id="riderId" autocomplete="off" placeholder="RIDER-001">
-
-    <label for="orderId">Order ID optional</label>
-    <input id="orderId" autocomplete="off" placeholder="ORDER-1234">
+    <p>Tap start and allow location access. This page shares this device's live location about every 30 seconds while it remains open.</p>
 
     <button id="shareButton" onclick="startTracking()">Start Live Tracking</button>
     <button id="stopButton" class="secondary" onclick="stopTracking()" hidden>Stop Tracking</button>
@@ -119,8 +97,21 @@
     const SEND_INTERVAL_MS = 30000;
     let trackingTimer = null;
 
-    function getValue(id) {
-      return document.getElementById(id).value.trim();
+    function getDeviceType() {
+      const ua = navigator.userAgent.toLowerCase();
+      if (/ipad|tablet/.test(ua)) return "tablet";
+      if (/mobi|android|iphone|ipod/.test(ua)) return "mobile";
+      return "desktop";
+    }
+
+    function getDeviceKey() {
+      const key = "lt_location_device_key";
+      let value = localStorage.getItem(key);
+      if (!value) {
+        value = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        localStorage.setItem(key, value);
+      }
+      return value;
     }
 
     function setStatus(message) {
@@ -138,14 +129,10 @@
       details.appendChild(document.createElement("strong")).innerText = "Live location saved";
       details.appendChild(document.createElement("br"));
 
-      if (location.orderId) {
-        const order = document.createElement("div");
-        order.innerText = `Order: ${location.orderId}`;
-        details.append(order);
-      }
-
       const rider = document.createElement("div");
-      rider.innerText = `Rider: ${location.riderId}`;
+      const device = document.createElement("div");
+      rider.innerText = `Tracking ID: ${location.riderId}`;
+      device.innerText = `Device: ${location.deviceType || "unknown"}`;
       address.innerText = `Address: ${location.address || "Address lookup unavailable"}`;
       accuracy.innerText = `Accuracy: ${Math.round(location.accuracy || 0)} meters`;
       map.href = location.mapUrl;
@@ -153,16 +140,14 @@
       map.rel = "noopener";
       map.innerText = "Open location";
 
-      details.append(rider, address, accuracy, map);
+      details.append(rider, device, address, accuracy, map);
     }
 
     async function sendLocation(position) {
-      const riderId = getValue("riderId");
-      const orderId = getValue("orderId");
-
       const data = {
-        riderId,
-        orderId,
+        deviceType: getDeviceType(),
+        deviceKey: getDeviceKey(),
+        userAgent: navigator.userAgent,
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
         accuracy: position.coords.accuracy,
@@ -206,12 +191,6 @@
     function startTracking() {
       const startButton = document.getElementById("shareButton");
       const stopButton = document.getElementById("stopButton");
-      const riderId = getValue("riderId");
-
-      if (!riderId) {
-        setStatus("Enter Rider ID.");
-        return;
-      }
 
       if (!navigator.geolocation) {
         setStatus("GPS is not supported on this device.");

@@ -73,6 +73,25 @@ function buildGoogleMapsUrl(latitude, longitude) {
   return `https://www.google.com/maps?q=${latitude},${longitude}`;
 }
 
+function detectDeviceType(userAgent = "") {
+  const ua = String(userAgent).toLowerCase();
+  if (/ipad|tablet/.test(ua)) return "tablet";
+  if (/mobi|android|iphone|ipod/.test(ua)) return "mobile";
+  return "desktop";
+}
+
+function buildDeviceIdentity(body, userAgent) {
+  const deviceType = normalizeId(body.deviceType) || detectDeviceType(userAgent);
+  const deviceKey = normalizeId(body.deviceKey);
+  const suffix = deviceKey || Buffer.from(String(userAgent || "unknown")).toString("base64url").slice(0, 10);
+  return {
+    riderId: `${deviceType}-${suffix}`.slice(0, 64),
+    deviceType,
+    deviceKey: suffix,
+    userAgent: String(userAgent || "").slice(0, 220),
+  };
+}
+
 function trackerMeta(deviceId) {
   return DEFAULT_CANTRACK_TRACKERS[deviceId] || {
     label: deviceId.slice(0, 8),
@@ -329,18 +348,12 @@ async function reverseGeocode(latitude, longitude) {
 }
 
 app.post("/api/location", async (req, res) => {
-  const riderId = normalizeId(req.body.riderId);
+  const identity = buildDeviceIdentity(req.body, req.get("user-agent"));
+  const riderId = normalizeId(req.body.riderId) || identity.riderId;
   const orderId = normalizeId(req.body.orderId);
   const latitude = toNumber(req.body.latitude);
   const longitude = toNumber(req.body.longitude);
   const accuracy = toNumber(req.body.accuracy);
-
-  if (!riderId) {
-    return res.status(400).json({
-      success: false,
-      message: "riderId is required.",
-    });
-  }
 
   if (
     latitude === null ||
@@ -369,6 +382,9 @@ app.post("/api/location", async (req, res) => {
     latitude,
     longitude,
     accuracy,
+    deviceType: identity.deviceType,
+    deviceKey: identity.deviceKey,
+    userAgent: identity.userAgent,
     address,
     mapUrl: buildGoogleMapsUrl(latitude, longitude),
     sharedAt: new Date().toISOString(),
