@@ -31,17 +31,17 @@ const DEFAULT_CANTRACK_TRACKER_IDS = [
 ];
 const DEFAULT_CANTRACK_TRACKERS = {
   ec86025d2be54efb96634bd437c56e23: {
-    label: "LT01-TT200583",
+    label: "LT01-STEPHEN",
     imei: "868720065061578",
     sim: "09111848135",
   },
   "791b7b56bacf4b84a8ff4e7a9c82309a": {
-    label: "LT02-TT201376",
+    label: "LT02-KINGSLEY PAUL",
     imei: "868720065056750",
     sim: "09111848128",
   },
   "320cee40e50c441cb3b0e72b11c5692e": {
-    label: "LT03-TT201390",
+    label: "LT03-KINGSLEY EMEKA",
     imei: "868720065063178",
     sim: "09111848126",
   },
@@ -51,7 +51,7 @@ const DEFAULT_CANTRACK_TRACKERS = {
     sim: "09111848127",
   },
   c35c83a5e069496a80b0e1d3f1878062: {
-    label: "LT05-TT202356",
+    label: "LT05-ALEXANDER",
     imei: "868720065056487",
     sim: "09111848129",
   },
