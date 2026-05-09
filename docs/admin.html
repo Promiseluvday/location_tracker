@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Liebe Tag Tracker Admin</title>
+  <style>
+    :root {
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f6f7f9;
+      color: #17202a;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin: 0 auto 20px;
+      max-width: 1100px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 11px 14px;
+      background: #125f53;
+      color: #ffffff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    section {
+      background: #ffffff;
+      border: 1px solid #d7dde5;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    .status {
+      max-width: 1100px;
+      margin: 0 auto 16px;
+      font-weight: 700;
+    }
+
+    .item {
+      border-top: 1px solid #e5e9ef;
+      padding: 12px 0;
+    }
+
+    .item:first-of-type {
+      border-top: 0;
+    }
+
+    .item strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .meta {
+      color: #4a5664;
+      font-size: 14px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    a {
+      color: #125f53;
+      font-weight: 700;
+    }
+
+    .empty {
+      color: #6b7785;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Tracker Admin Test</h1>
+    <button onclick="loadTrackers()">Refresh</button>
+  </header>
+  <div id="status" class="status">Loading trackers...</div>
+  <main>
+    <section>
+      <h2>Bike GPS - Cantrack</h2>
+      <div id="cantrack"></div>
+    </section>
+    <section>
+      <h2>Phone GPS - Rider Page</h2>
+      <div id="phone"></div>
+    </section>
+  </main>
+
+  <script>
+    const API_BASE_URL = "https://location-tracker-p7z7.onrender.com";
+    const REFRESH_MS = 30000;
+
+    function setStatus(message) {
+      document.getElementById("status").innerText = message;
+    }
+
+    function renderList(id, items, emptyText) {
+      const container = document.getElementById(id);
+      container.replaceChildren();
+
+      if (!items.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty";
+        empty.innerText = emptyText;
+        container.appendChild(empty);
+        return;
+      }
+
+      for (const item of items) {
+        const row = document.createElement("div");
+        const title = document.createElement("strong");
+        const meta = document.createElement("div");
+        const map = document.createElement("a");
+
+        row.className = "item";
+        title.innerText = item.deviceId || item.riderId || "Unknown tracker";
+        meta.className = "meta";
+        meta.innerText = [
+          `Lat: ${item.latitude}`,
+          `Lng: ${item.longitude}`,
+          item.speedKmh !== undefined ? `Speed: ${item.speedKmh} km/h` : "",
+          item.accuracy !== undefined ? `Accuracy: ${Math.round(item.accuracy)} m` : "",
+          item.ageSeconds !== undefined ? `Age: ${item.ageSeconds}s` : "",
+          item.timestamp ? `Time: ${item.timestamp}` : item.sharedAt ? `Time: ${item.sharedAt}` : ""
+        ].filter(Boolean).join(" | ");
+
+        map.href = item.mapUrl || `https://www.google.com/maps?q=${item.latitude},${item.longitude}`;
+        map.target = "_blank";
+        map.rel = "noopener";
+        map.innerText = "Open map";
+
+        row.append(title, meta, map);
+        container.appendChild(row);
+      }
+    }
+
+    async function getJson(path) {
+      const response = await fetch(`${API_BASE_URL}${path}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `Request failed: ${path}`);
+      }
+      return data;
+    }
+
+    async function loadTrackers() {
+      setStatus("Refreshing...");
+      const [cantrackResult, phoneResult] = await Promise.allSettled([
+        getJson("/api/cantrack/locations"),
+        getJson("/api/riders/locations")
+      ]);
+
+      const cantrackItems =
+        cantrackResult.status === "fulfilled" ? cantrackResult.value.locations : [];
+      const phoneItems =
+        phoneResult.status === "fulfilled" ? phoneResult.value.locations : [];
+
+      renderList("cantrack", cantrackItems, cantrackResult.reason?.message || "No Cantrack locations yet.");
+      renderList("phone", phoneItems, "No phone-shared rider locations yet.");
+
+      const errors = [];
+      if (cantrackResult.status === "rejected") errors.push(`Cantrack: ${cantrackResult.reason.message}`);
+      if (phoneResult.status === "rejected") errors.push(`Phone GPS: ${phoneResult.reason.message}`);
+
+      setStatus(
+        errors.length
+          ? `Last refresh had errors. ${errors.join(" ")}`
+          : `Last refresh: ${new Date().toLocaleTimeString()}`
+      );
+    }
+
+    loadTrackers();
+    setInterval(loadTrackers, REFRESH_MS);
+  </script>
+</body>
+</html>
