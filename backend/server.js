@@ -22,6 +22,13 @@ const cantrackState = {
   mds: "",
   lastLoginAt: 0,
 };
+const DEFAULT_CANTRACK_TRACKER_IDS = [
+  "ec86025d2be54efb96634bd437c56e23",
+  "791b7b56bacf4b84a8ff4e7a9c82309a",
+  "320cee40e50c441cb3b0e72b11c5692e",
+  "f59bbda3b8104ec5b4cafaf740e6e3ce",
+  "c35c83a5e069496a80b0e1d3f1878062",
+];
 
 function normalizeId(value) {
   return String(value || "")
@@ -51,7 +58,8 @@ function getCantrackConfig() {
     pass: process.env.CANTRACK_PASS || "",
     schoolId: process.env.CANTRACK_SCHOOL_ID || "",
     custId: process.env.CANTRACK_CUST_ID || process.env.CANTRACK_SCHOOL_ID || "",
-    trackerIds,
+    trackerIds: trackerIds.length ? trackerIds : DEFAULT_CANTRACK_TRACKER_IDS,
+    trackerIdsFromEnv: trackerIds.length > 0,
   };
 }
 
@@ -340,6 +348,24 @@ app.get("/api/cantrack/locations", async (req, res) => {
       message: error.message,
     });
   }
+});
+
+app.get("/api/cantrack/config", (req, res) => {
+  const config = getCantrackConfig();
+
+  res.json({
+    success: true,
+    cantrackUserSet: Boolean(config.user),
+    cantrackPassSet: Boolean(config.pass),
+    schoolIdSet: Boolean(config.schoolId),
+    custIdSet: Boolean(config.custId),
+    trackerIdsFromEnv: config.trackerIdsFromEnv,
+    trackerIdCount: config.trackerIds.length,
+    hasFreshMds: Boolean(cantrackState.mds),
+    lastLoginAt: cantrackState.lastLoginAt
+      ? new Date(cantrackState.lastLoginAt).toISOString()
+      : null,
+  });
 });
 
 app.get("/api/cantrack/location/:deviceId", async (req, res) => {
