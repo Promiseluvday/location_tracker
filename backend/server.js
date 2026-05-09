@@ -17,6 +17,11 @@ app.use(express.json());
 const latestLocations = new Map();
 const latestLocationsByRider = new Map();
 const latestLocationsByOrder = new Map();
+const cantrackState = {
+  cookies: new Map(),
+  mds: "",
+  lastLoginAt: 0,
+};
 
 function normalizeId(value) {
   return String(value || "")
@@ -32,6 +37,208 @@ function toNumber(value) {
 
 function buildGoogleMapsUrl(latitude, longitude) {
   return `https://www.google.com/maps?q=${latitude},${longitude}`;
+}
+
+function getCantrackConfig() {
+  const trackerIds = (process.env.CANTRACK_TRACKER_IDS || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+
+  return {
+    baseUrl: process.env.CANTRACK_BASE_URL || "https://www.cantrackportal.com",
+    user: process.env.CANTRACK_USER || "",
+    pass: process.env.CANTRACK_PASS || "",
+    schoolId: process.env.CANTRACK_SCHOOL_ID || "",
+    custId: process.env.CANTRACK_CUST_ID || process.env.CANTRACK_SCHOOL_ID || "",
+    trackerIds,
+  };
+}
+
+function cookieHeader() {
+  const cookies = [...cantrackState.cookies.entries()].map(
+    ([name, value]) => `${name}=${value}`
+  );
+  cookies.push("domainIndex=0");
+  return cookies.join("; ");
+}
+
+function storeCookies(headers) {
+  const raw = headers.get("set-cookie") || "";
+  const parts = raw.split(/,(?=[^ ;]+=)/).map((value) => value.trim()).filter(Boolean);
+
+  for (const part of parts) {
+    const [nameValue] = part.split(";");
+    const separator = nameValue.indexOf("=");
+    if (separator > 0) {
+      cantrackState.cookies.set(
+        nameValue.slice(0, separator),
+        nameValue.slice(separator + 1)
+      );
+    }
+  }
+}
+
+function extractLocationHref(text) {
+  const match = text.match(/(?:window\.)?location\.href\s*=\s*["']([^"']+)/i);
+  return match ? match[1] : "";
+}
+
+function absoluteCantrackUrl(path, baseUrl) {
+  return path.startsWith("http") ? path : `${baseUrl}${path}`;
+}
+
+function looksLikeCantrackLogout(text) {
+  const normalized = text.trim().toLowerCase();
+  return (
+    normalized.includes("logout.aspx") ||
+    normalized.includes("loginouts") ||
+    normalized.startsWith("<!doctype") ||
+    normalized.startsWith("<html")
+  );
+}
+
+async function cantrackRequest(path, options = {}) {
+  const { baseUrl } = getCantrackConfig();
+  const response = await fetch(absoluteCantrackUrl(path, baseUrl), {
+    method: options.method || "GET",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+      Referer: options.referer || `${baseUrl}/Skins/DefaultIndex/`,
+      Cookie: cookieHeader(),
+      ...(options.headers || {}),
+    },
+    body: options.body,
+    redirect: "manual",
+  });
+
+  storeCookies(response.headers);
+  return {
+    response,
+    text: await response.text(),
+  };
+}
+
+async function loginCantrack() {
+  const config = getCantrackConfig();
+  if (!config.user || !config.pass || !config.schoolId || !config.custId) {
+    throw new Error(
+      "Set CANTRACK_USER, CANTRACK_PASS, CANTRACK_SCHOOL_ID, and CANTRACK_CUST_ID."
+    );
+  }
+
+  cantrackState.cookies.clear();
+  await cantrackRequest("/Skins/DefaultIndex/");
+
+  const body = new URLSearchParams({
+    userName: config.user,
+    pwd: config.pass,
+    monitor: "0",
+    loginType: "ENTERPRISE",
+    url: "",
+    rand: "",
+    language: "en",
+    timeZone: "1",
+  });
+
+  const login = await cantrackRequest("/LoginByUser.aspx?method=loginSystem", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  const sendRedirectPath = extractLocationHref(login.text);
+  if (!sendRedirectPath) {
+    throw new Error("Cantrack login did not return a redirect.");
+  }
+
+  const redirect = await cantrackRequest(sendRedirectPath, {
+    referer: `${config.baseUrl}/LoginByUser.aspx?method=loginSystem`,
+  });
+
+  const indexPath = extractLocationHref(redirect.text);
+  if (!indexPath) {
+    throw new Error("Cantrack redirect did not return a user index URL.");
+  }
+
+  const indexUrl = new URL(absoluteCantrackUrl(indexPath, config.baseUrl));
+  cantrackState.mds = indexUrl.searchParams.get("mds") || "";
+  cantrackState.lastLoginAt = Date.now();
+
+  await cantrackRequest(indexPath, {
+    referer: absoluteCantrackUrl(sendRedirectPath, config.baseUrl),
+  });
+
+  if (!cantrackState.mds) {
+    throw new Error("Cantrack did not return a fresh MDS token.");
+  }
+}
+
+function parseCantrackRecord(record) {
+  if (!Array.isArray(record) || record.length < 11) {
+    return null;
+  }
+
+  const longitude = Number(record[1]);
+  const latitude = Number(record[2]);
+  if (!latitude && !longitude) {
+    return null;
+  }
+
+  return {
+    deviceId: String(record[10] || ""),
+    latitude,
+    longitude,
+    speedKmh: Number(record[7] || 0),
+    heading: Number(record[9] || 0),
+    timestamp: record[5] ? new Date(Number(record[5])).toISOString() : new Date().toISOString(),
+    mapUrl: buildGoogleMapsUrl(latitude, longitude),
+  };
+}
+
+async function fetchCantrackLocations() {
+  const config = getCantrackConfig();
+  if (!config.trackerIds.length) {
+    throw new Error("Set CANTRACK_TRACKER_IDS as comma-separated device IDs.");
+  }
+
+  if (!cantrackState.mds || Date.now() - cantrackState.lastLoginAt > 20 * 60 * 1000) {
+    await loginCantrack();
+  }
+
+  const url = new URL(`${config.baseUrl}/TrackService.aspx`);
+  url.searchParams.set("method", "getUserAndGPSInfoUtcByIds");
+  url.searchParams.set("school_id", config.schoolId);
+  url.searchParams.set("custid", config.custId);
+  url.searchParams.set("user_ids", config.trackerIds.join(","));
+  url.searchParams.set("mapType", "GOOGLE");
+  url.searchParams.set("option", "en");
+  url.searchParams.set("Selected", "device");
+  url.searchParams.set("currentid", config.custId);
+  url.searchParams.set("update", "1");
+  url.searchParams.set("mds", cantrackState.mds);
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+      Accept: "text/javascript, application/javascript, */*; q=0.01",
+      "X-Requested-With": "XMLHttpRequest",
+      Referer: `${config.baseUrl}/user/tracking.html?mds=${cantrackState.mds}&school_id=${config.schoolId}&custid=${config.custId}&mapType=GOOGLE`,
+      Cookie: cookieHeader(),
+    },
+  });
+
+  const text = await response.text();
+  if (looksLikeCantrackLogout(text)) {
+    await loginCantrack();
+    return fetchCantrackLocations();
+  }
+
+  const data = JSON.parse(text);
+  const records = Array.isArray(data.records) ? data.records : [];
+  return records.map(parseCantrackRecord).filter(Boolean);
 }
 
 async function reverseGeocode(latitude, longitude) {
@@ -116,6 +323,45 @@ app.get("/api/riders/locations", (req, res) => {
   }));
 
   res.json({ success: true, count: locations.length, locations });
+});
+
+app.get("/api/cantrack/locations", async (req, res) => {
+  try {
+    const locations = await fetchCantrackLocations();
+    res.json({
+      success: true,
+      count: locations.length,
+      source: "cantrack",
+      locations,
+    });
+  } catch (error) {
+    res.status(502).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+app.get("/api/cantrack/location/:deviceId", async (req, res) => {
+  try {
+    const deviceId = normalizeId(req.params.deviceId);
+    const locations = await fetchCantrackLocations();
+    const location = locations.find((item) => item.deviceId === deviceId);
+
+    if (!location) {
+      return res.status(404).json({
+        success: false,
+        message: "No Cantrack location found for this device.",
+      });
+    }
+
+    res.json({ success: true, source: "cantrack", location });
+  } catch (error) {
+    res.status(502).json({
+      success: false,
+      message: error.message,
+    });
+  }
 });
 
 app.get("/api/rider/:riderId/location", (req, res) => {

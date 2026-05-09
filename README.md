@@ -55,7 +55,27 @@ Query the latest rider location attached to an order:
 GET /api/order/ORDER-1234/location
 ```
 
+Query bike GPS tracker locations from Cantrack:
+
+```http
+GET /api/cantrack/locations
+```
+
 The response includes latitude, longitude, accuracy, a Google Maps URL, and an address when reverse geocoding is available.
+
+## Cantrack environment variables
+
+Set these on Render to enable the Cantrack endpoints:
+
+```env
+CANTRACK_USER=your-cantrack-username
+CANTRACK_PASS=your-cantrack-password
+CANTRACK_SCHOOL_ID=your-school-id
+CANTRACK_CUST_ID=your-customer-id
+CANTRACK_TRACKER_IDS=device-id-1,device-id-2,device-id-3
+```
+
+The Cantrack integration logs in through the current portal flow and uses the fresh MDS token returned by Cantrack, then queries `TrackService.aspx` for the configured tracker IDs.
 
 ## Production notes
 
