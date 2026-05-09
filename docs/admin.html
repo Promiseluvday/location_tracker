@@ -87,6 +87,11 @@
       word-break: break-word;
     }
 
+    .offline strong,
+    .offline .meta {
+      color: #7b8794;
+    }
+
     a {
       color: #125f53;
       font-weight: 700;
@@ -141,24 +146,32 @@
         const meta = document.createElement("div");
         const map = document.createElement("a");
 
-        row.className = "item";
-        title.innerText = item.deviceId || item.riderId || "Unknown tracker";
+        const isOffline = item.status === "offline";
+        row.className = isOffline ? "item offline" : "item";
+        title.innerText = item.label || item.riderId || item.deviceId || "Unknown tracker";
         meta.className = "meta";
-        meta.innerText = [
-          `Lat: ${item.latitude}`,
-          `Lng: ${item.longitude}`,
-          item.speedKmh !== undefined ? `Speed: ${item.speedKmh} km/h` : "",
-          item.accuracy !== undefined ? `Accuracy: ${Math.round(item.accuracy)} m` : "",
-          item.ageSeconds !== undefined ? `Age: ${item.ageSeconds}s` : "",
-          item.timestamp ? `Time: ${item.timestamp}` : item.sharedAt ? `Time: ${item.sharedAt}` : ""
-        ].filter(Boolean).join(" | ");
 
-        map.href = item.mapUrl || `https://www.google.com/maps?q=${item.latitude},${item.longitude}`;
-        map.target = "_blank";
-        map.rel = "noopener";
-        map.innerText = "Open map";
+        if (isOffline) {
+          meta.innerText = `Status: Offline | Device: ${item.deviceId}`;
+          row.append(title, meta);
+        } else {
+          meta.innerText = [
+            `Status: ${item.status || "online"}`,
+            `Lat: ${item.latitude}`,
+            `Lng: ${item.longitude}`,
+            item.speedKmh !== undefined && item.speedKmh !== null ? `Speed: ${item.speedKmh} km/h` : "",
+            item.accuracy !== undefined ? `Accuracy: ${Math.round(item.accuracy)} m` : "",
+            item.ageSeconds !== undefined ? `Age: ${item.ageSeconds}s` : "",
+            item.timestamp ? `Time: ${item.timestamp}` : item.sharedAt ? `Time: ${item.sharedAt}` : ""
+          ].filter(Boolean).join(" | ");
 
-        row.append(title, meta, map);
+          map.href = item.mapUrl || `https://www.google.com/maps?q=${item.latitude},${item.longitude}`;
+          map.target = "_blank";
+          map.rel = "noopener";
+          map.innerText = "Open map";
+
+          row.append(title, meta, map);
+        }
         container.appendChild(row);
       }
     }

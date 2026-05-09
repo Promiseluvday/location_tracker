@@ -29,6 +29,33 @@ const DEFAULT_CANTRACK_TRACKER_IDS = [
   "f59bbda3b8104ec5b4cafaf740e6e3ce",
   "c35c83a5e069496a80b0e1d3f1878062",
 ];
+const DEFAULT_CANTRACK_TRACKERS = {
+  ec86025d2be54efb96634bd437c56e23: {
+    label: "LT01-TT200583",
+    imei: "868720065061578",
+    sim: "09111848135",
+  },
+  "791b7b56bacf4b84a8ff4e7a9c82309a": {
+    label: "LT02-TT201376",
+    imei: "868720065056750",
+    sim: "09111848128",
+  },
+  "320cee40e50c441cb3b0e72b11c5692e": {
+    label: "LT03-TT201390",
+    imei: "868720065063178",
+    sim: "09111848126",
+  },
+  f59bbda3b8104ec5b4cafaf740e6e3ce: {
+    label: "LT04-TITUS",
+    imei: "868720065061412",
+    sim: "09111848127",
+  },
+  c35c83a5e069496a80b0e1d3f1878062: {
+    label: "LT05-TT202356",
+    imei: "868720065056487",
+    sim: "09111848129",
+  },
+};
 
 function normalizeId(value) {
   return String(value || "")
@@ -44,6 +71,14 @@ function toNumber(value) {
 
 function buildGoogleMapsUrl(latitude, longitude) {
   return `https://www.google.com/maps?q=${latitude},${longitude}`;
+}
+
+function trackerMeta(deviceId) {
+  return DEFAULT_CANTRACK_TRACKERS[deviceId] || {
+    label: deviceId.slice(0, 8),
+    imei: "",
+    sim: "",
+  };
 }
 
 function getCantrackConfig() {
@@ -196,6 +231,8 @@ function parseCantrackRecord(record) {
 
   return {
     deviceId: String(record[10] || ""),
+    label: trackerMeta(String(record[10] || "")).label,
+    status: "online",
     latitude,
     longitude,
     speedKmh: Number(record[7] || 0),
@@ -246,7 +283,30 @@ async function fetchCantrackLocations() {
 
   const data = JSON.parse(text);
   const records = Array.isArray(data.records) ? data.records : [];
-  return records.map(parseCantrackRecord).filter(Boolean);
+  const onlineLocations = records.map(parseCantrackRecord).filter(Boolean);
+  const byDeviceId = new Map(
+    onlineLocations.map((location) => [location.deviceId, location])
+  );
+
+  return config.trackerIds.map((deviceId) => {
+    const online = byDeviceId.get(deviceId);
+    if (online) {
+      return online;
+    }
+
+    const meta = trackerMeta(deviceId);
+    return {
+      deviceId,
+      label: meta.label,
+      status: "offline",
+      latitude: null,
+      longitude: null,
+      speedKmh: null,
+      heading: null,
+      timestamp: null,
+      mapUrl: null,
+    };
+  });
 }
 
 async function reverseGeocode(latitude, longitude) {
