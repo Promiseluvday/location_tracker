@@ -1,6 +1,15 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const app = express();
+
+// Serve static files from public/
+app.use(express.static(path.join(__dirname, "public")))
+
+// Admin map — accessible at /admin
+app.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "admin.html"))
+})
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "*")
   .split(",")
